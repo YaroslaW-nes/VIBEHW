@@ -106,6 +106,8 @@ PRESETS = {
         "Country": " United-States",
     },
 }
+GITHUB_REPO_URL = "https://github.com/YaroslaW-nes/VIBEHW"
+GITHUB_REPO_LABEL = "YaroslaW-nes/VIBEHW"
 
 
 @st.cache_resource
@@ -275,6 +277,11 @@ def render_hero() -> None:
         """,
         unsafe_allow_html=True,
     )
+    repo_col, button_col = st.columns([3, 1])
+    with repo_col:
+        st.caption(f"GitHub repository: `{GITHUB_REPO_LABEL}`")
+    with button_col:
+        st.link_button("Открыть GitHub", GITHUB_REPO_URL, use_container_width=True)
 
 
 def render_toolbar(
