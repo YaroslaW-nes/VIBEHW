@@ -9,7 +9,7 @@ import streamlit as st
 from model import Predictor
 
 
-st.set_page_config(page_title="Income Scoring", page_icon="📊", layout="centered")
+st.set_page_config(page_title="Income Scoring", page_icon="📊", layout="wide")
 
 
 LABELS = {
@@ -55,13 +55,57 @@ NUMERIC_RANGES = {
     "Hours_per_week": (1, 99),
 }
 
+FIELD_HELP = {
+    "Age": "Older candidates often have more work experience and more stable career trajectories.",
+    "Education_Num": "More years of formal education often correlate with higher-paying jobs in the training data.",
+    "Capital_Gain": "Investment income is often associated with higher-income profiles.",
+    "Hours_per_week": "A full-time or overtime workload can increase the probability of higher income.",
+    "Workclass": "Type of employer matters because income distributions differ across employment sectors.",
+    "Occupation": "Occupation is one of the strongest drivers of income differences in the Adult dataset.",
+}
+
 TIPS = [
     "Возраст часто повышает вероятность высокого дохода: у более старших людей обычно больше опыта, выше квалификация и уже построенная карьера.",
     "Большее количество лет обучения и более высокий уровень образования обычно связаны с доступом к более высокооплачиваемым позициям.",
-    "Высокие `Capital_Gain` и ненулевые инвестиционные доходы часто сигнализируют о более обеспеченном профиле.",
+    "Высокие Capital Gain и ненулевые инвестиционные доходы часто сигнализируют о более обеспеченном профиле.",
     "Большее число рабочих часов в неделю может повышать шанс высокого дохода, особенно для full-time и managerial ролей.",
     "Профессия, тип занятости и семейный статус тоже влияют на прогноз, потому что модель ищет статистические паттерны в обучающих данных, а не причинные связи.",
 ]
+
+PRESETS = {
+    "Typical low income": {
+        "Age": 24,
+        "Workclass": " Private",
+        "fnlwgt": 180000,
+        "Education": " HS-grad",
+        "Education_Num": 9,
+        "Martial_Status": " Never-married",
+        "Occupation": " Other-service",
+        "Relationship": " Not-in-family",
+        "Race": " White",
+        "Sex": " Female",
+        "Capital_Gain": 0,
+        "Capital_Loss": 0,
+        "Hours_per_week": 35,
+        "Country": " United-States",
+    },
+    "Typical high income": {
+        "Age": 47,
+        "Workclass": " Private",
+        "fnlwgt": 210000,
+        "Education": " Bachelors",
+        "Education_Num": 13,
+        "Martial_Status": " Married-civ-spouse",
+        "Occupation": " Exec-managerial",
+        "Relationship": " Husband",
+        "Race": " White",
+        "Sex": " Male",
+        "Capital_Gain": 7688,
+        "Capital_Loss": 0,
+        "Hours_per_week": 50,
+        "Country": " United-States",
+    },
+}
 
 
 @st.cache_resource
@@ -77,6 +121,62 @@ def load_random_examples() -> pd.DataFrame | None:
         return None
     frame = pd.read_csv(data_path)
     return frame[FIELD_ORDER].copy()
+
+
+def apply_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background:
+                radial-gradient(circle at top right, rgba(215, 232, 255, 0.9), transparent 28%),
+                linear-gradient(180deg, #f4f7fb 0%, #eef3f8 100%);
+        }
+        .hero-card, .result-card, .section-card, .sidebar-card {
+            background: rgba(255, 255, 255, 0.86);
+            border: 1px solid rgba(31, 41, 55, 0.08);
+            border-radius: 20px;
+            padding: 1.1rem 1.2rem;
+            box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+        }
+        .hero-title {
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 0.2rem;
+        }
+        .hero-subtitle {
+            color: #475569;
+            font-size: 1rem;
+        }
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #132238;
+            margin-bottom: 0.6rem;
+        }
+        .kpi-label {
+            color: #64748b;
+            font-size: 0.82rem;
+            margin-bottom: 0.15rem;
+        }
+        .kpi-value {
+            color: #0f172a;
+            font-size: 1.6rem;
+            font-weight: 700;
+        }
+        .positive-note {
+            color: #0f766e;
+            font-weight: 600;
+        }
+        .negative-note {
+            color: #b91c1c;
+            font-weight: 600;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def get_category_options(predictor: Predictor, column: str) -> list[str]:
@@ -100,8 +200,31 @@ def get_default_values(
         values[column] = int(predictor.numerical_fill_values[column])
     for column in predictor.categorical_columns:
         fill_value = predictor.categorical_fill_values[column]
-        values[column] = fill_value if fill_value in category_options[column] else category_options[column][0]
+        values[column] = (
+            fill_value if fill_value in category_options[column] else category_options[column][0]
+        )
     return values
+
+
+def sanitize_values(
+    values: dict[str, object], predictor: Predictor, category_options: dict[str, list[str]]
+) -> dict[str, object]:
+    sanitized = {}
+    defaults = get_default_values(predictor, category_options)
+    for column in FIELD_ORDER:
+        value = values.get(column, defaults[column])
+        if column in predictor.integer_columns:
+            low, high = NUMERIC_RANGES[column]
+            try:
+                value = int(value)
+            except (TypeError, ValueError):
+                value = defaults[column]
+            value = max(low, min(high, value))
+        else:
+            if value not in category_options[column]:
+                value = defaults[column]
+        sanitized[column] = value
+    return sanitized
 
 
 def get_random_values(
@@ -110,13 +233,7 @@ def get_random_values(
     examples = load_random_examples()
     if examples is not None and not examples.empty:
         row = examples.sample(n=1, random_state=random.randint(0, 1_000_000)).iloc[0]
-        values = {}
-        for column in FIELD_ORDER:
-            if column in predictor.integer_columns:
-                values[column] = int(row[column])
-            else:
-                values[column] = row[column]
-        return values
+        return sanitize_values(row.to_dict(), predictor, category_options)
 
     values = get_default_values(predictor, category_options)
     for column, (low, high) in NUMERIC_RANGES.items():
@@ -140,45 +257,271 @@ def ensure_form_state(
 
 
 def build_input_frame() -> pd.DataFrame:
-    row = {
-        "Age": int(st.session_state["Age"]),
-        "Workclass": st.session_state["Workclass"],
-        "fnlwgt": int(st.session_state["fnlwgt"]),
-        "Education": st.session_state["Education"],
-        "Education_Num": int(st.session_state["Education_Num"]),
-        "Martial_Status": st.session_state["Martial_Status"],
-        "Occupation": st.session_state["Occupation"],
-        "Relationship": st.session_state["Relationship"],
-        "Race": st.session_state["Race"],
-        "Sex": st.session_state["Sex"],
-        "Capital_Gain": int(st.session_state["Capital_Gain"]),
-        "Capital_Loss": int(st.session_state["Capital_Loss"]),
-        "Hours_per_week": int(st.session_state["Hours_per_week"]),
-        "Country": st.session_state["Country"],
-    }
+    row = {column: st.session_state[column] for column in FIELD_ORDER}
+    for column in NUMERIC_RANGES:
+        row[column] = int(row[column])
     return pd.DataFrame([row])
+
+
+def render_hero() -> None:
+    st.markdown(
+        """
+        <div class="hero-card">
+            <div class="hero-title">Income Scoring Dashboard</div>
+            <div class="hero-subtitle">
+                Введите профиль человека, получите прогноз дохода и локальную интерпретацию через SHAP values.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_toolbar(
+    predictor: Predictor, category_options: dict[str, list[str]]
+) -> None:
+    action_col, preset_low_col, preset_high_col, reset_col = st.columns([1, 1, 1, 1])
+
+    with action_col:
+        if st.button("Случайный профиль", use_container_width=True):
+            sync_form_state(get_random_values(predictor, category_options))
+            st.rerun()
+
+    with preset_low_col:
+        if st.button("Typical low income", use_container_width=True):
+            sync_form_state(
+                sanitize_values(PRESETS["Typical low income"], predictor, category_options)
+            )
+            st.rerun()
+
+    with preset_high_col:
+        if st.button("Typical high income", use_container_width=True):
+            sync_form_state(
+                sanitize_values(PRESETS["Typical high income"], predictor, category_options)
+            )
+            st.rerun()
+
+    with reset_col:
+        if st.button("Сбросить форму", use_container_width=True):
+            sync_form_state(get_default_values(predictor, category_options))
+            st.rerun()
+
+
+def render_context_panels() -> None:
+    preview_col, tips_col = st.columns([1, 1.4])
+
+    with preview_col:
+        st.markdown(
+            """
+            <div class="section-card">
+                <div class="section-title">Live Preview</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        preview = {
+            "Age": st.session_state["Age"],
+            "Education": st.session_state["Education"],
+            "Occupation": st.session_state["Occupation"],
+            "Workclass": st.session_state["Workclass"],
+            "Hours/week": st.session_state["Hours_per_week"],
+        }
+        st.json(preview)
+
+    with tips_col:
+        with st.expander("Подсказки по признакам", expanded=True):
+            for tip in TIPS:
+                st.write(f"- {tip}")
+
+
+def render_section_header(title: str) -> None:
+    st.markdown(f'<div class="section-title">{title}</div>', unsafe_allow_html=True)
 
 
 def render_result(prediction: int, probability: float | None) -> None:
     income_label = ">50K" if prediction == 1 else "<=50K"
-    st.success(f"Результат скоринга: {income_label}")
-    if probability is not None:
-        st.metric("Вероятность класса >50K", f"{probability:.2%}")
+    tone = "positive-note" if prediction == 1 else "negative-note"
+    probability_text = "n/a" if probability is None else f"{probability:.2%}"
+    st.markdown(
+        f"""
+        <div class="result-card">
+            <div class="kpi-label">Model Verdict</div>
+            <div class="kpi-value">{income_label}</div>
+            <div class="{tone}">
+                Вероятность класса &gt;50K: {probability_text}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
-def render_tips() -> None:
-    with st.expander("Подсказки по признакам", expanded=True):
-        st.write(
-            "Эти подсказки объясняют общую логику модели на обучающих данных. "
-            "Они не гарантируют результат для конкретного человека."
-        )
-        for tip in TIPS:
-            st.write(f"- {tip}")
+def render_feature_summary(contributions: pd.DataFrame) -> None:
+    positive = contributions.sort_values("shap_value", ascending=False).head(3)
+    negative = contributions.sort_values("shap_value", ascending=True).head(3)
+
+    pos_col, neg_col = st.columns(2)
+    with pos_col:
+        st.markdown("#### Что повысило шанс >50K")
+        for _, row in positive.iterrows():
+            if row["shap_value"] <= 0:
+                continue
+            st.write(
+                f"- **{row['feature']}** = `{row['value']}` ({row['shap_value']:+.4f})"
+            )
+
+    with neg_col:
+        st.markdown("#### Что понизило шанс >50K")
+        for _, row in negative.iterrows():
+            if row["shap_value"] >= 0:
+                continue
+            st.write(
+                f"- **{row['feature']}** = `{row['value']}` ({row['shap_value']:+.4f})"
+            )
+
+
+def render_shap(explanation: dict[str, object]) -> None:
+    contributions = explanation["feature_contributions"].copy()
+    chart_data = contributions[["feature", "shap_value"]].set_index("feature")
+
+    st.markdown(
+        """
+        <div class="section-card">
+            <div class="section-title">SHAP Explanation</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    metric_col, _ = st.columns([1, 2])
+    with metric_col:
+        st.metric("Базовое значение модели", f"{float(explanation['base_value']):.4f}")
+    st.caption(
+        "Положительное значение повышает вероятность класса >50K, отрицательное снижает её."
+    )
+    render_feature_summary(contributions)
+    st.bar_chart(chart_data, use_container_width=True)
+
+    with st.expander("Полная таблица вкладов"):
+        st.dataframe(contributions, use_container_width=True)
+
+
+def render_form(predictor: Predictor, category_options: dict[str, list[str]]) -> bool:
+    with st.form("scoring_form"):
+        profile_col, job_col, finance_col = st.columns(3)
+
+        with profile_col:
+            render_section_header("Профиль")
+            st.number_input(
+                LABELS["Age"],
+                min_value=NUMERIC_RANGES["Age"][0],
+                max_value=NUMERIC_RANGES["Age"][1],
+                key="Age",
+                help=FIELD_HELP["Age"],
+            )
+            st.selectbox(
+                LABELS["Sex"],
+                category_options["Sex"],
+                key="Sex",
+            )
+            st.selectbox(
+                LABELS["Race"],
+                category_options["Race"],
+                key="Race",
+            )
+            st.selectbox(
+                LABELS["Relationship"],
+                category_options["Relationship"],
+                key="Relationship",
+            )
+            st.selectbox(
+                LABELS["Country"],
+                category_options["Country"],
+                key="Country",
+            )
+
+        with job_col:
+            render_section_header("Работа и образование")
+            st.selectbox(
+                LABELS["Workclass"],
+                category_options["Workclass"],
+                key="Workclass",
+                help=FIELD_HELP["Workclass"],
+            )
+            st.selectbox(
+                LABELS["Occupation"],
+                category_options["Occupation"],
+                key="Occupation",
+                help=FIELD_HELP["Occupation"],
+            )
+            st.selectbox(
+                LABELS["Education"],
+                category_options["Education"],
+                key="Education",
+            )
+            st.number_input(
+                LABELS["Education_Num"],
+                min_value=NUMERIC_RANGES["Education_Num"][0],
+                max_value=NUMERIC_RANGES["Education_Num"][1],
+                key="Education_Num",
+                help=FIELD_HELP["Education_Num"],
+            )
+            st.selectbox(
+                LABELS["Martial_Status"],
+                category_options["Martial_Status"],
+                key="Martial_Status",
+            )
+            st.number_input(
+                LABELS["Hours_per_week"],
+                min_value=NUMERIC_RANGES["Hours_per_week"][0],
+                max_value=NUMERIC_RANGES["Hours_per_week"][1],
+                key="Hours_per_week",
+                help=FIELD_HELP["Hours_per_week"],
+            )
+
+        with finance_col:
+            render_section_header("Финансы")
+            st.number_input(
+                LABELS["fnlwgt"],
+                min_value=NUMERIC_RANGES["fnlwgt"][0],
+                max_value=NUMERIC_RANGES["fnlwgt"][1],
+                key="fnlwgt",
+            )
+            st.number_input(
+                LABELS["Capital_Gain"],
+                min_value=NUMERIC_RANGES["Capital_Gain"][0],
+                max_value=NUMERIC_RANGES["Capital_Gain"][1],
+                key="Capital_Gain",
+                help=FIELD_HELP["Capital_Gain"],
+            )
+            st.number_input(
+                LABELS["Capital_Loss"],
+                min_value=NUMERIC_RANGES["Capital_Loss"][0],
+                max_value=NUMERIC_RANGES["Capital_Loss"][1],
+                key="Capital_Loss",
+            )
+
+            st.markdown(
+                """
+                <div class="section-card" style="margin-top: 1rem;">
+                    <div class="section-title">Как читать результат</div>
+                    <div>
+                        Модель оценивает вероятность класса <strong>&gt;50K</strong>.
+                        После расчёта ниже появятся verdict, вероятность и SHAP-вклады признаков.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        submit_col, _ = st.columns([1, 3])
+        with submit_col:
+            submitted = st.form_submit_button("Рассчитать", use_container_width=True)
+    return submitted
 
 
 def main() -> None:
-    st.title("Скоринг дохода")
-    st.caption("Форма использует модель из `model.joblib` через класс `Predictor`.")
+    apply_styles()
+    render_hero()
 
     try:
         predictor = load_predictor()
@@ -191,63 +534,29 @@ def main() -> None:
         for column in predictor.categorical_columns
     }
     ensure_form_state(predictor, category_options)
+    render_toolbar(predictor, category_options)
+    render_context_panels()
 
-    actions_col, _ = st.columns([1, 2])
-    with actions_col:
-        if st.button("Сгенерировать случайные данные", use_container_width=True):
-            sync_form_state(get_random_values(predictor, category_options))
-
-    render_tips()
-
-    with st.form("scoring_form"):
-        col_left, col_right = st.columns(2)
-
-        with col_left:
-            st.number_input(LABELS["Age"], min_value=0, key="Age")
-            st.selectbox(LABELS["Workclass"], category_options["Workclass"], key="Workclass")
-            st.number_input(LABELS["fnlwgt"], min_value=0, key="fnlwgt")
-            st.selectbox(LABELS["Education"], category_options["Education"], key="Education")
-            st.number_input(LABELS["Education_Num"], min_value=0, key="Education_Num")
-            st.selectbox(
-                LABELS["Martial_Status"],
-                category_options["Martial_Status"],
-                key="Martial_Status",
-            )
-            st.selectbox(LABELS["Occupation"], category_options["Occupation"], key="Occupation")
-
-        with col_right:
-            st.selectbox(
-                LABELS["Relationship"],
-                category_options["Relationship"],
-                key="Relationship",
-            )
-            st.selectbox(LABELS["Race"], category_options["Race"], key="Race")
-            st.selectbox(LABELS["Sex"], category_options["Sex"], key="Sex")
-            st.number_input(LABELS["Capital_Gain"], min_value=0, key="Capital_Gain")
-            st.number_input(LABELS["Capital_Loss"], min_value=0, key="Capital_Loss")
-            st.number_input(
-                LABELS["Hours_per_week"],
-                min_value=0,
-                key="Hours_per_week",
-            )
-            st.selectbox(LABELS["Country"], category_options["Country"], key="Country")
-
-        submitted = st.form_submit_button("Рассчитать")
-
+    submitted = render_form(predictor, category_options)
     if not submitted:
         return
 
     try:
         frame = build_input_frame()
         prediction = int(predictor.predict(frame)[0])
+        explanation = predictor.explain(frame)
 
         probability = None
         if hasattr(predictor.model, "predict_proba"):
             probability = float(predictor.predict_proba(frame)[0][1])
 
-        render_result(prediction, probability)
-        with st.expander("Входные данные"):
-            st.dataframe(frame, use_container_width=True)
+        result_col, detail_col = st.columns([1.1, 1.9])
+        with result_col:
+            render_result(prediction, probability)
+            with st.expander("Входные данные"):
+                st.dataframe(frame, use_container_width=True)
+        with detail_col:
+            render_shap(explanation)
     except Exception as exc:
         st.error("Не удалось выполнить расчёт.")
         st.exception(exc)
